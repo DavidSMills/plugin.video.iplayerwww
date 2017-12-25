@@ -654,7 +654,11 @@ def ScrapeMarkup(markup):
             r'<a.*?href="(.*?)".*?list-item-link.*?>',
                 li, flags=(re.DOTALL | re.MULTILINE))
         if url_match:
-            main_url = url_match.group(1)
+            tmp_url = url_match.group(1)
+            if tmp_url.startswith('http'):
+                main_url = tmp_url
+            else:
+                main_url = 'https://www.bbc.co.uk' + tmp_url
 
         name = ''
         title = ''
@@ -708,7 +712,11 @@ def ScrapeMarkup(markup):
             r'<a class="view-more-container.+?stat".+?href="(.*?)"',
             li, flags=(re.DOTALL | re.MULTILINE))
         if episodes_match:
-            episodes_url = episodes_match.group(1)
+            tmp_url = episodes_match.group(1)
+            if tmp_url.startswith('http'):
+                episodes_url = tmp_url
+            else:
+                episodes_url = 'https://www.bbc.co.uk' + tmp_url
 
         more = None
         # <em class="view-more-heading">27</em>
@@ -805,13 +813,18 @@ def ListHighlights(highlights_url):
 
     html = OpenURL('https://www.bbc.co.uk/%s' % highlights_url)
 
-    inner_anchors = re.findall(r'<a.*?(?!<a).*?</a>',html,flags=(re.DOTALL | re.MULTILINE))
+    inner_anchors = re.findall(r'href="(?!<a).*?</a>',html,flags=(re.DOTALL | re.MULTILINE))
 
     # First find all groups as we need to store some properties of groups for later reuse.
     group_properties = []
 
     # NOTE find episode count first
     episode_count = dict()
+
+    # These groups seem to be no longer used, because this function is only used
+    # for Channel Highlights, no longer main Highlights.
+    # Comment the code for now and remove it in the future.
+    """
     groups = [a for a in inner_anchors if re.match(
         r'<a[^<]*?class="grouped-items__cta.*?data-object-type="group-list-link".*?',
         a, flags=(re.DOTALL | re.MULTILINE))]
@@ -875,16 +888,17 @@ def ListHighlights(highlights_url):
 
         AddMenuEntry('[B]%s: %s[/B] - %s %s' % (translation(30314), name, count, translation(30315)),
                      url, 128, '', '', '')
+    """
 
     # New group types for Channel Highlights.
     groups = [a for a in inner_anchors if re.match(
-        r'<a[^<]*?class="group__title stat.*?data-object-type="group-list-link".*?',
+        r'[^<]*?class="group__title stat.*?data-object-type="group-list-link".*?',
         a, flags=(re.DOTALL | re.MULTILINE))]
     for group in groups:
 
         href = ''
         href_match = re.match(
-            r'<a[^<]*?href="(.*?)"',
+            r'href="(.*?)"',
             group, flags=(re.DOTALL | re.MULTILINE))
         if href_match:
             href = href_match.group(1)
@@ -914,7 +928,7 @@ def ListHighlights(highlights_url):
                              [position_match.group(1),
                              name, group_type])
             group_details = [a for a in inner_anchors if re.match(
-                r'<a[^<]*?class="button.*?group__cta.*?data-object-position="'+
+                r'[^<]*?class="button.*?group__cta.*?data-object-position="'+
                 re.escape(position_match.group(1))+
                 r'-ALL".*?',
                 a, flags=(re.DOTALL | re.MULTILINE))]
@@ -943,7 +957,7 @@ def ListHighlights(highlights_url):
         episode_id = ''
         # <a\n    href="/iplayer/episode/b06tr74y/eastenders-24122015"
         id_match = re.match(
-            r'<a.*?href="/iplayer/episode/(.*?)/',
+            r'href="/iplayer/episode/(.*?)/',
             listed, flags=(re.DOTALL | re.MULTILINE))
         if id_match:
             episode_id = id_match.group(1)
@@ -1010,11 +1024,11 @@ def ListHighlights(highlights_url):
         # <a\nhref="/iplayer/episode/p036gq3z/bbc-music-introducing-from-buddhist-monk-to-rock-star"
         if object_type == "editorial-promo":
             id_match = re.match(
-                r'<a.*?href="(.*?)"',
+                r'href="(.*?)"',
                 single, flags=(re.DOTALL | re.MULTILINE))
         else:
             id_match = re.match(
-                r'<a.*?href="/iplayer/episode/(.*?)/',
+                r'href="/iplayer/episode/(.*?)/',
                 single, flags=(re.DOTALL | re.MULTILINE))
         if id_match:
             episode_id = id_match.group(1)
@@ -1135,18 +1149,20 @@ def ListMainHighlights(highlights_url):
         if group_type == "trailers":
             continue
 
-        inner_anchors = re.findall(r'<a href="(?!<a).*?</a>', group, flags=(re.DOTALL | re.MULTILINE))
+        inner_anchors = re.findall(r'href="(?!<a).*?</a>', group, flags=(re.DOTALL | re.MULTILINE))
+
+        group_data = []
 
         for programme in inner_anchors:
 
             is_group = False
-            button_match = re.search(r'button', programme, flags=(re.DOTALL | re.MULTILINE))
+            button_match = re.search(r'View all', programme, flags=(re.DOTALL | re.MULTILINE))
             if button_match:
                 is_group = True
 
             url = ''
             href_match = re.match(
-                r'<a href="(.*?)"', programme, flags=(re.DOTALL | re.MULTILINE))
+                r'href="(.*?)"', programme, flags=(re.DOTALL | re.MULTILINE))
             if href_match:
                 href = href_match.group(1)
                 if href.startswith('http'):
@@ -1155,31 +1171,27 @@ def ListMainHighlights(highlights_url):
                     url = 'https://www.bbc.co.uk' + href
 
             name = ''
-            if group_type == "popular":
-                name_match = re.search(
-                    r'<span class="typo.+?">(.*?)</span>',
-                    programme, flags=(re.DOTALL | re.MULTILINE))
-            else:
-                name_match = re.search(
-                    r'item__title.+?<strong>(.*?)</strong>',
-                    programme, flags=(re.DOTALL | re.MULTILINE))
+            name_match = re.search(
+                r'item__title.+?>(.*?)</div>',
+                programme, flags=(re.DOTALL | re.MULTILINE))
             if name_match:
                 name = name_match.group(1)
 
             subtitle_match = re.search(
-                r'<p class=".+?subtitle.+?>(.*?)</p>', programme, flags=(re.DOTALL | re.MULTILINE))
+                r'primary">.*?item__description.+?>(.*?)</div>',
+                programme, flags=(re.DOTALL | re.MULTILINE))
             if subtitle_match:
                 name =  name + ' - ' + subtitle_match.group(1)
 
             iconimage = ''
             iconimage_match = re.search(
-                r'320x180/(.*?)\.jpg', programme, flags=(re.DOTALL | re.MULTILINE))
+                r'images/ic/.*?/(.*?)\.jpg', programme, flags=(re.DOTALL | re.MULTILINE))
             if iconimage_match:
-                iconimage = "http://ichef.bbci.co.uk/images/ic/832x468/"+iconimage_match.group(1)+".jpg"
+                iconimage = "https://ichef.bbci.co.uk/images/ic/832x468/"+iconimage_match.group(1)+".jpg"
 
             description = ''
             description_match = re.search(
-                r'<p class="overlay__text__inner.+?>(.*?)</p>',
+                r'secondary">.*?item__description.+?>(.*?)</div>',
                 programme, flags=(re.DOTALL | re.MULTILINE))
             if description_match:
                 description = description_match.group(1)
@@ -1195,14 +1207,22 @@ def ListMainHighlights(highlights_url):
                     category = ''
                     category_match = re.search(r'categories/(.*?)/', href, flags=re.DOTALL)
                     if category_match:
-                        AddMenuEntry('[B]%s: %s[/B]' % (translation(30314), name),
-                            category_match.group(1), 125, '', '', '')
+                        group_data.append(('[B]%s: %s[/B]' % (translation(30314), name), 
+                                          category_match.group(1), 125))
+                elif group_type == "popular":
+                    group_data.append(('[B]%s: %s[/B]' % (translation(30314), name), 
+                                      url, 105))
                 else:
-                    AddMenuEntry('[B]%s: %s[/B]' % (translation(30314), name),
-                        url, 128, '', '', '')
-
+                    group_data.append(('[B]%s: %s[/B]' % (translation(30314), name), 
+                                      url, 128))
             else:
                 CheckAutoplay(name, url, iconimage, description, '')
+
+        # For whatever reason, all groups appear twice in HTML, but we only want to add unique groups.
+        unique = []
+        [unique.append(item) for item in group_data if item not in unique]
+        for name, url, mode in unique:
+            AddMenuEntry(name, url, mode, '', '', '')
 
     xbmcplugin.addSortMethod(int(sys.argv[1]), xbmcplugin.SORT_METHOD_VIDEO_TITLE)
     xbmcplugin.addSortMethod(int(sys.argv[1]), xbmcplugin.SORT_METHOD_DATE)
@@ -1211,7 +1231,85 @@ def ListMainHighlights(highlights_url):
 
 def ListMostPopular():
     """Scrapes all episodes of the most popular page."""
-    ScrapeEpisodes("http://www.bbc.co.uk/iplayer/group/most-popular")
+    html = OpenURL("http://www.bbc.co.uk/iplayer/group/most-popular")
+
+    # <li class="most-popular__item gel-layout__item gel-1/2 gel-1/3@m">
+    list_items = re.findall(r'<li class="most-popular.*?</li>', html, flags=(re.DOTALL | re.MULTILINE))
+
+    list_item_num = 1
+
+    for li in list_items:
+        # NOTE remove useless hrefs
+
+        # href="#gel-icon-iplayer"
+        li = re.compile(r'href="#.*?"',
+                          flags=(re.DOTALL | re.MULTILINE)).sub('', li)
+
+        main_url = None
+        # <a class="content-item__link gel-layout gel-layout--flush"
+        # href="/iplayer/episode/b09k9n93/eastenders-21122017"
+        url_match = re.search(
+            r'href="(.*?)"',
+            li, flags=(re.DOTALL | re.MULTILINE))
+        if url_match:
+            url = url_match.group(1)
+            # Some strings already contain the full URL, need to work around this.
+            url = url.replace('http://www.bbc.co.uk','')
+            if url:
+                main_url = 'http://www.bbc.co.uk' + url
+
+        name = ''
+        title = ''
+        # <div class="content-item__title typo typo--skylark typo--bold">EastEnders</div>
+        title_match = re.search(
+            r'<div class="content-item__title.*?>\s*(.*?)\s*</div>',
+            li, flags=(re.DOTALL | re.MULTILINE))
+        if title_match:
+            title = title_match.group(1)
+            name = title
+
+        subtitle = None
+        # <div class="content-item__info__primary"><div class="content-item__description
+        # typo typo--bullfinch">21/21 Crowning the champion</div>
+        subtitle_match = re.search(
+            r'<div class="content-item__info__primary">.*?>\s*(.*?)\s*</div>',
+            li, flags=(re.DOTALL | re.MULTILINE))
+        if subtitle_match:
+            subtitle = subtitle_match.group(1)
+            if subtitle:
+                name = name + " - " + subtitle
+
+        icon = ''
+        # <source srcset="http://ichef.bbci.co.uk/images/ic/336x189/p04cd999.jpg"
+        icon_match = re.search(
+            r'https://ichef.bbci.co.uk/images/ic/.*?/(.*?)\.jpg',
+            li, flags=(re.DOTALL | re.MULTILINE))
+        if icon_match:
+            image = icon_match.group(1)
+            if image:
+                icon = "https://ichef.bbci.co.uk/images/ic/832x468/" + image + ".jpg"
+
+        type = None
+        synopsis = ''
+        # <div class="content-item__info__secondary"><div class="content-item__description typo
+        # typo--bullfinch">Linda gets more than she bargained for when looking for her Christmas
+        # present.</div>
+        synopsis_match = re.search(
+            r'<div class="content-item__info__secondary">.*?>\s*(.*?)\s*</div>',
+            li, flags=(re.DOTALL | re.MULTILINE))
+        if synopsis_match:
+            synopsis = synopsis_match.group(1)
+
+        aired = ''
+        episodes = None
+        more = None
+
+        CheckAutoplay(name , main_url, icon, synopsis, aired)
+
+    xbmcplugin.addSortMethod(int(sys.argv[1]), xbmcplugin.SORT_METHOD_VIDEO_TITLE)
+    xbmcplugin.addSortMethod(int(sys.argv[1]), xbmcplugin.SORT_METHOD_DATE)
+    xbmcplugin.addSortMethod(int(sys.argv[1]), xbmcplugin.SORT_METHOD_UNSORTED)
+
 
 
 def AddAvailableStreamItem(name, url, iconimage, description):
